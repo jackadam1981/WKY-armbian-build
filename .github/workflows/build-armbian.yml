@@ -92,8 +92,6 @@ jobs:
           RELEASE: ${{ steps.config.outputs.release }}
           BUILD_MINIMAL: "no"
           BUILD_DESKTOP: "no"
-          KERNEL_ONLY: "no"
-          KERNEL_CONFIGURE: "no"
           COMPRESS_OUTPUTIMAGE: "sha,img"
         run: |
           ./compile.sh \
@@ -102,8 +100,6 @@ jobs:
             RELEASE=${RELEASE} \
             BUILD_MINIMAL=${BUILD_MINIMAL} \
             BUILD_DESKTOP=${BUILD_DESKTOP} \
-            KERNEL_ONLY=${KERNEL_ONLY} \
-            KERNEL_CONFIGURE=${KERNEL_CONFIGURE} \
             COMPRESS_OUTPUTIMAGE=${COMPRESS_OUTPUTIMAGE}
 
       - name: List output files
