@@ -1,0 +1,137 @@
+name: Build Armbian for WS-1608
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      board:
+        description: 'Board name (e.g., onecloud, odroidc1)'
+        required: false
+        default: 'onecloud'
+      branch:
+        description: 'Armbian branch (current, edge)'
+        required: false
+        default: 'current'
+      release:
+        description: 'Release (bullseye, bookworm, jammy)'
+        required: false
+        default: 'bullseye'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git \
+            curl \
+            wget \
+            build-essential \
+            libssl-dev \
+            python3 \
+            python3-pip \
+            device-tree-compiler \
+            u-boot-tools \
+            binfmt-support \
+            qemu-user-static \
+            debootstrap \
+            btrfs-progs \
+            dosfstools \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libncurses5-dev \
+            libc6-dev-armhf-cross \
+            gcc-arm-linux-gnueabihf \
+            g++-arm-linux-gnueabihf \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu
+
+      - name: Clone Armbian build repository
+        run: |
+          git clone --depth=1 https://github.com/armbian/build.git armbian-build
+          cd armbian-build
+          git fetch --unshallow || true
+
+      - name: Configure build parameters
+        id: config
+        run: |
+          BOARD="${{ github.event.inputs.board || 'onecloud' }}"
+          BRANCH="${{ github.event.inputs.branch || 'current' }}"
+          RELEASE="${{ github.event.inputs.release || 'bullseye' }}"
+          
+          echo "board=${BOARD}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "release=${RELEASE}" >> $GITHUB_OUTPUT
+          
+          echo "Building Armbian for WS-1608"
+          echo "Board: ${BOARD}"
+          echo "Branch: ${BRANCH}"
+          echo "Release: ${RELEASE}"
+
+      - name: Build Armbian image
+        working-directory: armbian-build
+        env:
+          BOARD: ${{ steps.config.outputs.board }}
+          BRANCH: ${{ steps.config.outputs.branch }}
+          RELEASE: ${{ steps.config.outputs.release }}
+          BUILD_MINIMAL: "no"
+          BUILD_DESKTOP: "no"
+          KERNEL_ONLY: "no"
+          KERNEL_CONFIGURE: "no"
+          COMPRESS_OUTPUTIMAGE: "sha,img"
+        run: |
+          ./compile.sh \
+            BOARD=${BOARD} \
+            BRANCH=${BRANCH} \
+            RELEASE=${RELEASE} \
+            BUILD_MINIMAL=${BUILD_MINIMAL} \
+            BUILD_DESKTOP=${BUILD_DESKTOP} \
+            KERNEL_ONLY=${KERNEL_ONLY} \
+            KERNEL_CONFIGURE=${KERNEL_CONFIGURE} \
+            COMPRESS_OUTPUTIMAGE=${COMPRESS_OUTPUTIMAGE}
+
+      - name: List output files
+        working-directory: armbian-build
+        run: |
+          echo "Build output files:"
+          find output/images -type f -name "*.img" -o -name "*.sha" -o -name "*.xz" 2>/dev/null || true
+          ls -lh output/images/ 2>/dev/null || true
+
+      - name: Upload Armbian image artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: armbian-ws1608-${{ steps.config.outputs.board }}-${{ steps.config.outputs.release }}
+          path: |
+            armbian-build/output/images/*.img
+            armbian-build/output/images/*.img.sha
+            armbian-build/output/images/*.xz
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-logs
+          path: |
+            armbian-build/output/logs/*.log
+          retention-days: 7
+          if-no-files-found: warn
+
