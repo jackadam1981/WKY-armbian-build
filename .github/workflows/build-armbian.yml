@@ -187,11 +187,61 @@ jobs:
       - name: Download and unpack u-boot
         run: |
           echo "::group::Download u-boot"
-          curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Download attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
+            if curl -L -f -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}; then
+              # Check if file was downloaded and has reasonable size (> 1MB)
+              if [ -f ./uboot.img ] && [ $(stat -f%z ./uboot.img 2>/dev/null || stat -c%s ./uboot.img 2>/dev/null || echo 0) -gt 1048576 ]; then
+                echo "Download successful"
+                ls -lh ./uboot.img
+                break
+              else
+                echo "Downloaded file is too small or missing"
+                rm -f ./uboot.img
+              fi
+            else
+              echo "Download failed"
+              rm -f ./uboot.img
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "Retrying in 5 seconds..."
+              sleep 5
+            else
+              echo "Failed to download u-boot after $MAX_RETRIES attempts"
+              exit 1
+            fi
+          done
           echo "::endgroup::"
 
           echo "::group::Unpack u-boot"
+          # Verify file before unpacking
+          if [ ! -f ./uboot.img ]; then
+            echo "Error: uboot.img not found"
+            exit 1
+          fi
+          
+          FILE_SIZE=$(stat -f%z ./uboot.img 2>/dev/null || stat -c%s ./uboot.img 2>/dev/null || echo 0)
+          echo "File size: $FILE_SIZE bytes"
+          
+          if [ $FILE_SIZE -lt 1048576 ]; then
+            echo "Error: File too small, likely corrupted"
+            exit 1
+          fi
+          
           ./AmlImg unpack ./uboot.img burn/
+          
+          # Verify unpack was successful
+          if [ ! -d "burn" ] || [ -z "$(ls -A burn/ 2>/dev/null)" ]; then
+            echo "Error: Unpack failed or burn directory is empty"
+            exit 1
+          fi
+          echo "Unpack successful"
+          ls -la burn/
           echo "::endgroup::"
 
       - name: Extract boot and rootfs partitions
