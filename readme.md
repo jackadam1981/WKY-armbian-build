@@ -39,6 +39,10 @@
 2. 在 "Artifacts" 部分下载构建的镜像文件
 3. 镜像文件通常为 `.img` 格式，可能包含 `.sha` 校验文件
 
+### 刷入镜像
+
+下载镜像后，请参考 [刷入指南.md](刷入指南.md) 了解如何将镜像刷入到玩客云设备。
+
 ## 编译参数说明
 
 - **BOARD**: 目标板型，玩客云通常使用 `onecloud`
@@ -59,5 +63,6 @@
 
 ## 相关链接
 
+- [刷入指南](刷入指南.md) - 详细的镜像刷入教程
 - [ARMBIAN 官方仓库](https://github.com/armbian/build)
 - [ARMBIAN 文档](https://docs.armbian.com/)

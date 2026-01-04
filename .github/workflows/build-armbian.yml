@@ -49,7 +49,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/cache/apt
-          key: apt-${{ runner.os }}-${{ hashFiles('**/lockfiles') }}
+          key: apt-${{ runner.os }}-packages
           restore-keys: |
             apt-${{ runner.os }}-
 
