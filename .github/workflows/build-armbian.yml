@@ -9,319 +9,249 @@ on:
     branches:
       - main
       - master
-  workflow_dispatch:  # 手动触发时，会并行编译所有 3 种组合（1个分支 × 3个发行版）
+  workflow_dispatch:
+
+env:
+  SCRIPT_REPO: ${{ github.repository }}
+  SCRIPT_REF: ${{ github.ref_name }}
+  UBOOT_REPO: hzyitc/u-boot-onecloud
+  UBOOT_RELEASE: latest
+  UBOOT_BURNIMG: eMMC.burn.img
+  ARMBIAN_REPO: armbian/build
+  ARMBIAN_REF: main
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 240  # 增加到 4 小时，ARMBIAN 编译通常需要 2-4 小时
-    strategy:
-      fail-fast: false  # 一个失败不影响其他组合
-      matrix:
-        branch: [current]  # onecloud 板型只支持 current 分支，不支持 edge
-        release: [bullseye, bookworm, jammy]
-      # 总共 3 种组合：1个分支 × 3个发行版
-    
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-22.04
+    outputs:
+      env: ${{ steps.get.outputs.env }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Cache apt packages
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt
-          key: apt-${{ runner.os }}-packages
-          restore-keys: |
-            apt-${{ runner.os }}-
-
-      - name: Set up environment
+      - id: get
+        name: Get repositories information
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git \
-            curl \
-            wget \
-            build-essential \
-            libssl-dev \
-            python3 \
-            python3-pip \
-            device-tree-compiler \
-            u-boot-tools \
-            binfmt-support \
-            qemu-user-static \
-            debootstrap \
-            btrfs-progs \
-            dosfstools \
-            bc \
-            bison \
-            flex \
-            libncurses5-dev \
-            libc6-dev-armhf-cross \
-            gcc-arm-linux-gnueabihf \
-            g++-arm-linux-gnueabihf \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
-            dialog
+          TIME="$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID} | jq -r .created_at)"
+          TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
 
-      - name: Configure Git for better network reliability
-        run: |
-          git config --global http.postBuffer 524288000
-          git config --global http.lowSpeedLimit 0
-          git config --global http.lowSpeedTime 999999
-          git config --global http.timeout 600
-          git config --global http.sslVerify true
-          # Increase connection timeout and retry
-          git config --global core.compression 0
-          # Set longer timeout for slow connections
-          git config --global http.version HTTP/1.1
+          SCRIPT_SHA=$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
+          UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | jq -r .tag_name)
+          ARMBIAN_SHA=$(curl -s https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
 
-      - name: Configure build parameters
-        id: config
+          cat <<EOF | sed -E 's/^  //' >>$GITHUB_ENV
+            TIME=$TIME
+            TAG=$TAG
+            SCRIPT_SHA=$SCRIPT_SHA
+            UBOOT_TAG=$UBOOT_TAG
+            ARMBIAN_SHA=$ARMBIAN_SHA
+          EOF
+          echo "env=$(cat $GITHUB_ENV | base64 -w 0)" >>$GITHUB_OUTPUT
+
+      - name: Show repositories information
         run: |
-          BOARD="onecloud"
-          BRANCH="${{ matrix.branch }}"
-          RELEASE="${{ matrix.release }}"
-          
-          echo "board=${BOARD}" >> $GITHUB_OUTPUT
-          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
-          echo "release=${RELEASE}" >> $GITHUB_OUTPUT
-          
-          echo "::group::Build Configuration"
-          echo "Building Armbian for WS-1608 (onecloud)"
-          echo "Board: ${BOARD}"
-          echo "Branch: ${BRANCH}"
-          echo "Release: ${RELEASE}"
-          echo "Matrix: branch=${BRANCH}, release=${RELEASE}"
+          echo "::group::Repositories Information"
+          echo "TIME: $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z')"
+          echo "Script: ${SCRIPT_REPO}@${SCRIPT_REF} (${SCRIPT_SHA})"
+          echo "U-Boot: ${UBOOT_REPO}@${UBOOT_RELEASE} (${UBOOT_TAG})"
+          echo "Armbian: ${ARMBIAN_REPO}@${ARMBIAN_REF} (${ARMBIAN_SHA})"
           echo "::endgroup::"
 
-      - name: Clone Armbian build repository
-        run: |
-          git clone --depth=1 https://github.com/armbian/build.git armbian-build
-          cd armbian-build
-          git fetch --depth=100 || true
+  build-debs:
+    name: Build ${{ matrix.BRANCH }}
+    needs: prepare
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        BRANCH:
+          - current
 
-      - name: Build Armbian image
-        working-directory: armbian-build
+    steps:
+      - name: Import env
+        run: |
+          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
+
+      - name: Checkout Armbian
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ARMBIAN_REPO }}
+          ref: ${{ env.ARMBIAN_SHA }}
+
+      - name: Build kernel
+        run: |
+          export GITHUB_ACTIONS=false
+          sudo --preserve-env \
+            ./compile.sh kernel \
+              ALLOW_ROOT=yes \
+              BOARD=onecloud \
+              BRANCH=${{ matrix.BRANCH }} \
+              EXPERT=yes \
+              USE_CCACHE=no
+          sudo chown $(id -u):$(id -g) -R output/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: debs-${{ matrix.BRANCH }}
+          path: output/debs/*
+
+  build:
+    name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}
+    needs: [ prepare, build-debs ]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        BRANCH:
+          - current
+        RELEASE:
+          - bullseye
+          - bookworm
+          - jammy
+
+    steps:
+      - name: Import env
+        run: |
+          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
+
+      - name: Checkout Armbian
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ARMBIAN_REPO }}
+          ref: ${{ env.ARMBIAN_SHA }}
+
+      - name: Download debs
+        uses: actions/download-artifact@v4
+        with:
+          name: debs-${{ matrix.BRANCH }}
+          path: output/debs/
+
+      - name: Build image
         env:
           DEBIAN_FRONTEND: noninteractive
-          BOARD: ${{ steps.config.outputs.board }}
-          BRANCH: ${{ steps.config.outputs.branch }}
-          RELEASE: ${{ steps.config.outputs.release }}
-          BUILD_MINIMAL: "no"
-          BUILD_DESKTOP: "no"
-          KERNEL_CONFIGURE: "no"
-          COMPRESS_OUTPUTIMAGE: "sha,img"
-          # Increase Git timeout for kernel.org access
-          GIT_HTTP_LOW_SPEED_LIMIT: 0
-          GIT_HTTP_LOW_SPEED_TIME: 999999
-          GIT_HTTP_TIMEOUT: 600
         run: |
-          # Configure Git in the build directory for better network reliability
-          git config http.postBuffer 524288000
-          git config http.timeout 600
-          git config http.lowSpeedLimit 0
-          git config http.lowSpeedTime 999999
-          
-          # Retry mechanism for network issues (especially git.kernel.org)
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if yes "no" | timeout 10800 ./compile.sh \
-              BOARD=${BOARD} \
-              BRANCH=${BRANCH} \
-              RELEASE=${RELEASE} \
-              BUILD_MINIMAL=${BUILD_MINIMAL} \
-              BUILD_DESKTOP=${BUILD_DESKTOP} \
-              KERNEL_CONFIGURE=${KERNEL_CONFIGURE} \
-              COMPRESS_OUTPUTIMAGE=${COMPRESS_OUTPUTIMAGE}; then
-              echo "Build completed successfully"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "Build failed, retrying... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
-                sleep 30
-              else
-                echo "Build failed after $MAX_RETRIES attempts"
-                exit 1
-              fi
-            fi
-          done
-
-      - name: List output files
-        working-directory: armbian-build
-        if: success()
-        run: |
-          echo "::group::Build Output Files"
-          find output/images -type f \( -name "*.img" -o -name "*.sha" -o -name "*.xz" \) 2>/dev/null | head -20 || true
-          echo ""
-          echo "File sizes:"
-          ls -lh output/images/ 2>/dev/null | head -20 || true
-          echo "::endgroup::"
+          export GITHUB_ACTIONS=false
+          sudo --preserve-env \
+            ./compile.sh build \
+              ALLOW_ROOT=yes \
+              BOARD=onecloud \
+              BRANCH=${{ matrix.BRANCH }} \
+              RELEASE=${{ matrix.RELEASE }} \
+              KERNEL_CONFIGURE=no \
+              BUILD_MINIMAL=no \
+              BUILD_DESKTOP=no \
+              EXPERT=yes \
+              SKIP_EXTERNAL_TOOLCHAINS=yes \
+              CLEAN_LEVEL= \
+              USE_CCACHE=no \
+              COMPRESS_OUTPUTIMAGE=img
+          sudo chown $(id -u):$(id -g) -R output/
 
       - name: Install Dependents
-        if: success()
-        working-directory: armbian-build
         run: |
           echo "::group::Install img2simg"
-          sudo apt install -y img2simg
+          # Try to install img2simg, if fails, install android-sdk-libsparse-utils and create symlink
+          if ! sudo apt install -y img2simg 2>/dev/null; then
+            echo "img2simg package not found, installing android-sdk-libsparse-utils..."
+            sudo apt install -y android-sdk-libsparse-utils
+            # Find img2simg in the package and create symlink if needed
+            IMG2SIMG_PATH=$(find /usr -name "img2simg" 2>/dev/null | head -1)
+            if [ -n "$IMG2SIMG_PATH" ] && [ ! -f /usr/local/bin/img2simg ]; then
+              sudo ln -s "$IMG2SIMG_PATH" /usr/local/bin/img2simg
+            fi
+          fi
+          img2simg --version || img2simg --help || echo "img2simg available"
           echo "::endgroup::"
-          
+
           echo "::group::Download AmlImg"
           ver="v0.3.1"
           curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
           chmod +x ./AmlImg
           echo "::endgroup::"
 
-      - name: Download and unpack u-boot burn.img
-        if: success()
-        working-directory: armbian-build
-        env:
-          UBOOT_REPO: hzyitc/u-boot-onecloud
-          UBOOT_RELEASE: latest
-          UBOOT_BURNIMG: eMMC.burn.img
+      - name: Download and unpack u-boot
         run: |
-          echo "::group::Get u-boot release tag"
-          UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | grep -oP '"tag_name": "\K[^"]+')
-          echo "U-Boot tag: ${UBOOT_TAG}"
-          echo "UBOOT_TAG=${UBOOT_TAG}" >> $GITHUB_ENV
-          echo "::endgroup::"
-          
-          echo "::group::Download u-boot burn.img"
+          echo "::group::Download u-boot"
           curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
           echo "::endgroup::"
-          
-          echo "::group::Unpack u-boot burn.img"
+
+          echo "::group::Unpack u-boot"
           ./AmlImg unpack ./uboot.img burn/
           echo "::endgroup::"
 
-      - name: Convert Armbian img to burn.img
-        if: success()
-        working-directory: armbian-build
+      - name: Extract boot and rootfs partitions
         run: |
-          echo "::group::Extract boot and rootfs partitions"
-          # Find the Armbian image file (exclude burn.img and compressed files)
-          DISKIMG=$(ls output/images/*.img | grep -v "\.burn\.img$" | head -1)
-          if [ -z "$DISKIMG" ]; then
+          echo "::group::Extract partitions"
+          diskimg=$(ls output/images/*.img | grep -v "\.burn\.img$" | head -1)
+          if [ -z "$diskimg" ]; then
             echo "Error: No Armbian image file found"
             exit 1
           fi
-          echo "Found image: ${DISKIMG}"
+          echo "Found image: $diskimg"
           
-          # Create loop device and scan partitions
-          LOOP_DEV=$(sudo losetup --find --show --partscan "${DISKIMG}")
-          echo "Loop device: ${LOOP_DEV}"
-          
-          # Extract boot partition (usually p1) and convert to sparse format
-          echo "Extracting boot partition..."
-          sudo img2simg ${LOOP_DEV}p1 burn/boot.simg
-          
-          # Extract rootfs partition (usually p2) and convert to sparse format
-          echo "Extracting rootfs partition..."
-          sudo img2simg ${LOOP_DEV}p2 burn/rootfs.simg
-          
-          # Clean up loop device
-          sudo losetup -d ${LOOP_DEV}
+          loop=$(sudo losetup --find --show --partscan "$diskimg")
+          sudo img2simg ${loop}p1 burn/boot.simg
+          sudo img2simg ${loop}p2 burn/rootfs.simg
+          sudo losetup -d $loop
           sudo chown $(id -u):$(id -g) -R burn/
           echo "::endgroup::"
-          
-          echo "::group::Generate verify files"
-          echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" > burn/boot.VERIFY
-          echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" > burn/rootfs.VERIFY
-          echo "::endgroup::"
-          
-          echo "::group::Create commands.txt"
-          cat <<EOF > burn/commands.txt
+
+      - name: Generate burn image
+        run: |
+          echo "::group::Generate burn image"
+          echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
+          echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
+
+          cat <<EOF >>burn/commands.txt
           PARTITION:boot:sparse:boot.simg
           VERIFY:boot:normal:boot.VERIFY
           PARTITION:rootfs:sparse:rootfs.simg
           VERIFY:rootfs:normal:rootfs.VERIFY
           EOF
-          echo "::endgroup::"
-          
-          echo "::group::Pack burn.img"
-          PREFIX=$(basename "${DISKIMG}" .img)
-          BURNIMG="output/images/${PREFIX}.burn.img"
-          ./AmlImg pack "${BURNIMG}" burn/
-          echo "Generated: ${BURNIMG}"
-          ls -lh "${BURNIMG}"
-          echo "::endgroup::"
 
-      - name: Calculate build summary
-        id: summary
-        if: always()
-        working-directory: armbian-build
-        run: |
-          if [ -d "output/images" ]; then
-            IMG_COUNT=$(find output/images -name "*.img" -type f 2>/dev/null | wc -l)
-            SHA_COUNT=$(find output/images -name "*.sha" -type f 2>/dev/null | wc -l)
-            TOTAL_SIZE=$(du -sh output/images 2>/dev/null | cut -f1 || echo "0")
-            echo "images=${IMG_COUNT}" >> $GITHUB_OUTPUT
-            echo "checksums=${SHA_COUNT}" >> $GITHUB_OUTPUT
-            echo "size=${TOTAL_SIZE}" >> $GITHUB_OUTPUT
-          else
-            echo "images=0" >> $GITHUB_OUTPUT
-            echo "checksums=0" >> $GITHUB_OUTPUT
-            echo "size=0" >> $GITHUB_OUTPUT
-          fi
+          prefix=$(ls output/images/*.img | grep -v "\.burn\.img$" | sed 's/\.img$//' | head -1)
+          burnimg=${prefix}.burn.img
+          ./AmlImg pack $burnimg burn/
+          echo "Generated: $burnimg"
+          ls -lh "$burnimg"
+          echo "::endgroup::"
 
       - name: Hash and compress images
-        if: success()
-        working-directory: armbian-build
         run: |
-          echo "::group::Generate SHA256 checksums"
+          echo "::group::Hash and compress"
           cd output/images
           for f in *.img; do
             if [ -f "$f" ]; then
-              sha256sum "$f" | tee -a "${f}.sha256"
-            fi
-          done
-          echo "::endgroup::"
-          
-          echo "::group::Compress images"
-          for f in *.img; do
-            if [ -f "$f" ] && [ ! -f "${f}.xz" ]; then
-              echo "Compressing $f..."
+              sha256sum "$f" | tee -a sha256sum
               xz --threads=0 --compress "$f"
             fi
           done
           echo "::endgroup::"
 
-      - name: Upload Armbian image artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: armbian-ws1608-${{ steps.config.outputs.board }}-${{ matrix.branch }}-${{ matrix.release }}-${{ github.run_number }}
-          path: |
-            armbian-build/output/images/*.img
-            armbian-build/output/images/*.img.sha
-            armbian-build/output/images/*.img.sha256
-            armbian-build/output/images/*.xz
+          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ github.run_number }}
+          path: output/images/*
           retention-days: 30
           if-no-files-found: warn
-          compression-level: 0  # 镜像文件已压缩，不需要再次压缩
 
-      - name: Upload build logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: build-logs-${{ matrix.branch }}-${{ matrix.release }}-${{ github.run_number }}
-          path: |
-            armbian-build/output/logs/*.log
-          retention-days: 7
-          if-no-files-found: warn
+      - name: Generate release informations
+        if: success()
+        run: |
+          cat <<EOF | sed -E 's/^  //' | tee Release.md
+            $(cat output/images/sha256sum | awk '{printf "%s: `%s`\n", $2, $1}')
+          EOF
 
       - name: Build Summary
         if: always()
         run: |
           echo "::group::Build Summary"
-          echo "Board: ${{ steps.config.outputs.board }}"
-          echo "Branch: ${{ matrix.branch }}"
-          echo "Release: ${{ matrix.release }}"
-          echo "Images: ${{ steps.summary.outputs.images }}"
-          echo "Checksums: ${{ steps.summary.outputs.checksums }}"
-          echo "Total Size: ${{ steps.summary.outputs.size }}"
+          echo "Branch: ${{ matrix.BRANCH }}"
+          echo "Release: ${{ matrix.RELEASE }}"
           echo "Status: ${{ job.status }}"
-          echo "Matrix: branch=${{ matrix.branch }}, release=${{ matrix.release }}"
           echo "::endgroup::"
-
