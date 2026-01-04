@@ -120,6 +120,10 @@ jobs:
             DESKTOP_ENVIRONMENT: xfce
             DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
             DESKTOP_APPGROUPS_SELECTED: ""
+        exclude:
+          # Exclude desktop builds for bullseye (Debian 11) as it doesn't support XFCE
+          - RELEASE: bullseye
+            TYPE: desktop
 
     steps:
       - name: Import env
