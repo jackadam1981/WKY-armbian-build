@@ -61,7 +61,8 @@ jobs:
             g++-arm-linux-gnueabihf \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
-            dialog
+            dialog \
+            img2simg
 
       - name: Configure Git for better network reliability
         run: |
@@ -159,6 +160,90 @@ jobs:
           ls -lh output/images/ 2>/dev/null | head -20 || true
           echo "::endgroup::"
 
+      - name: Install AmlImg tool
+        if: success()
+        working-directory: armbian-build
+        run: |
+          echo "::group::Download AmlImg"
+          ver="v0.3.1"
+          curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
+          chmod +x ./AmlImg
+          echo "::endgroup::"
+
+      - name: Download and unpack u-boot burn.img
+        if: success()
+        working-directory: armbian-build
+        env:
+          UBOOT_REPO: hzyitc/u-boot-onecloud
+          UBOOT_RELEASE: latest
+          UBOOT_BURNIMG: eMMC.burn.img
+        run: |
+          echo "::group::Get u-boot release tag"
+          UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | grep -oP '"tag_name": "\K[^"]+')
+          echo "U-Boot tag: ${UBOOT_TAG}"
+          echo "UBOOT_TAG=${UBOOT_TAG}" >> $GITHUB_ENV
+          echo "::endgroup::"
+          
+          echo "::group::Download u-boot burn.img"
+          curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
+          echo "::endgroup::"
+          
+          echo "::group::Unpack u-boot burn.img"
+          ./AmlImg unpack ./uboot.img burn/
+          echo "::endgroup::"
+
+      - name: Convert Armbian img to burn.img
+        if: success()
+        working-directory: armbian-build
+        run: |
+          echo "::group::Extract boot and rootfs partitions"
+          # Find the Armbian image file (exclude burn.img and compressed files)
+          DISKIMG=$(ls output/images/*.img | grep -v "\.burn\.img$" | head -1)
+          if [ -z "$DISKIMG" ]; then
+            echo "Error: No Armbian image file found"
+            exit 1
+          fi
+          echo "Found image: ${DISKIMG}"
+          
+          # Create loop device and scan partitions
+          LOOP_DEV=$(sudo losetup --find --show --partscan "${DISKIMG}")
+          echo "Loop device: ${LOOP_DEV}"
+          
+          # Extract boot partition (usually p1) and convert to sparse format
+          echo "Extracting boot partition..."
+          sudo img2simg ${LOOP_DEV}p1 burn/boot.simg
+          
+          # Extract rootfs partition (usually p2) and convert to sparse format
+          echo "Extracting rootfs partition..."
+          sudo img2simg ${LOOP_DEV}p2 burn/rootfs.simg
+          
+          # Clean up loop device
+          sudo losetup -d ${LOOP_DEV}
+          sudo chown $(id -u):$(id -g) -R burn/
+          echo "::endgroup::"
+          
+          echo "::group::Generate verify files"
+          echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" > burn/boot.VERIFY
+          echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" > burn/rootfs.VERIFY
+          echo "::endgroup::"
+          
+          echo "::group::Create commands.txt"
+          cat <<EOF > burn/commands.txt
+          PARTITION:boot:sparse:boot.simg
+          VERIFY:boot:normal:boot.VERIFY
+          PARTITION:rootfs:sparse:rootfs.simg
+          VERIFY:rootfs:normal:rootfs.VERIFY
+          EOF
+          echo "::endgroup::"
+          
+          echo "::group::Pack burn.img"
+          PREFIX=$(basename "${DISKIMG}" .img)
+          BURNIMG="output/images/${PREFIX}.burn.img"
+          ./AmlImg pack "${BURNIMG}" burn/
+          echo "Generated: ${BURNIMG}"
+          ls -lh "${BURNIMG}"
+          echo "::endgroup::"
+
       - name: Calculate build summary
         id: summary
         if: always()
@@ -177,6 +262,28 @@ jobs:
             echo "size=0" >> $GITHUB_OUTPUT
           fi
 
+      - name: Hash and compress images
+        if: success()
+        working-directory: armbian-build
+        run: |
+          echo "::group::Generate SHA256 checksums"
+          cd output/images
+          for f in *.img; do
+            if [ -f "$f" ]; then
+              sha256sum "$f" | tee -a "${f}.sha256"
+            fi
+          done
+          echo "::endgroup::"
+          
+          echo "::group::Compress images"
+          for f in *.img; do
+            if [ -f "$f" ] && [ ! -f "${f}.xz" ]; then
+              echo "Compressing $f..."
+              xz --threads=0 --compress "$f"
+            fi
+          done
+          echo "::endgroup::"
+
       - name: Upload Armbian image artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -185,6 +292,7 @@ jobs:
           path: |
             armbian-build/output/images/*.img
             armbian-build/output/images/*.img.sha
+            armbian-build/output/images/*.img.sha256
             armbian-build/output/images/*.xz
           retention-days: 30
           if-no-files-found: warn
