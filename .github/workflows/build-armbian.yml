@@ -9,7 +9,7 @@ on:
     branches:
       - main
       - master
-  workflow_dispatch:  # 手动触发时，会并行编译所有 6 种组合（2个分支 × 3个发行版）
+  workflow_dispatch:  # 手动触发时，会并行编译所有 3 种组合（1个分支 × 3个发行版）
 
 jobs:
   build:
@@ -18,9 +18,9 @@ jobs:
     strategy:
       fail-fast: false  # 一个失败不影响其他组合
       matrix:
-        branch: [current, edge]
+        branch: [current]  # onecloud 板型只支持 current 分支，不支持 edge
         release: [bullseye, bookworm, jammy]
-      # 总共 6 种组合：2个分支 × 3个发行版
+      # 总共 3 种组合：1个分支 × 3个发行版
     
     steps:
       - name: Checkout repository
