@@ -79,17 +79,56 @@ jobs:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
+      - name: Configure Git for network reliability
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 999999
+          git config --global http.timeout 600
+          git config --global http.sslVerify true
+          git config --global core.compression 0
+          git config --global http.version HTTP/1.1
+          
+          # Configure Git in the build directory
+          git config http.postBuffer 524288000
+          git config http.timeout 600
+          git config http.lowSpeedLimit 0
+          git config http.lowSpeedTime 999999
+
       - name: Build kernel
+        env:
+          GIT_HTTP_LOW_SPEED_LIMIT: 0
+          GIT_HTTP_LOW_SPEED_TIME: 999999
+          GIT_HTTP_TIMEOUT: 600
         run: |
           export GITHUB_ACTIONS=false
-          sudo --preserve-env \
-            ./compile.sh kernel \
-              ALLOW_ROOT=yes \
-              BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
-              EXPERT=yes \
-              USE_CCACHE=no
-          sudo chown $(id -u):$(id -g) -R output/
+          
+          # Retry mechanism for network issues (especially git.kernel.org)
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if yes "no" | timeout 10800 sudo --preserve-env \
+              ./compile.sh kernel \
+                ALLOW_ROOT=yes \
+                BOARD=onecloud \
+                BRANCH=${{ matrix.BRANCH }} \
+                EXPERT=yes \
+                USE_CCACHE=no; then
+              echo "Kernel build completed successfully"
+              sudo chown $(id -u):$(id -g) -R output/
+              exit 0
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Kernel build failed, retrying... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 30
+              else
+                echo "Kernel build failed after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -136,6 +175,22 @@ jobs:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
+      - name: Configure Git for network reliability
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 999999
+          git config --global http.timeout 600
+          git config --global http.sslVerify true
+          git config --global core.compression 0
+          git config --global http.version HTTP/1.1
+          
+          # Configure Git in the build directory
+          git config http.postBuffer 524288000
+          git config http.timeout 600
+          git config http.lowSpeedLimit 0
+          git config http.lowSpeedTime 999999
+
       - name: Download debs
         uses: actions/download-artifact@v4
         with:
@@ -145,26 +200,48 @@ jobs:
       - name: Build image
         env:
           DEBIAN_FRONTEND: noninteractive
+          GIT_HTTP_LOW_SPEED_LIMIT: 0
+          GIT_HTTP_LOW_SPEED_TIME: 999999
+          GIT_HTTP_TIMEOUT: 600
         run: |
           export GITHUB_ACTIONS=false
-          sudo --preserve-env \
-            ./compile.sh build \
-              ALLOW_ROOT=yes \
-              BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
-              RELEASE=${{ matrix.RELEASE }} \
-              KERNEL_CONFIGURE=no \
-              BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
-              BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
-              DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
-              DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
-              DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
-              EXPERT=yes \
-              SKIP_EXTERNAL_TOOLCHAINS=yes \
-              CLEAN_LEVEL= \
-              USE_CCACHE=no \
-              COMPRESS_OUTPUTIMAGE=img
-          sudo chown $(id -u):$(id -g) -R output/
+          
+          # Retry mechanism for network issues (especially git.kernel.org)
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if yes "no" | timeout 10800 sudo --preserve-env \
+              ./compile.sh build \
+                ALLOW_ROOT=yes \
+                BOARD=onecloud \
+                BRANCH=${{ matrix.BRANCH }} \
+                RELEASE=${{ matrix.RELEASE }} \
+                KERNEL_CONFIGURE=no \
+                BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
+                BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
+                DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
+                DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
+                DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
+                EXPERT=yes \
+                SKIP_EXTERNAL_TOOLCHAINS=yes \
+                CLEAN_LEVEL= \
+                USE_CCACHE=no \
+                COMPRESS_OUTPUTIMAGE=img; then
+              echo "Build completed successfully"
+              sudo chown $(id -u):$(id -g) -R output/
+              exit 0
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Build failed, retrying... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 30
+              else
+                echo "Build failed after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
 
       - name: Install Dependents
         run: |
