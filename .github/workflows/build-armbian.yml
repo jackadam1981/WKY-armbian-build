@@ -62,7 +62,7 @@ jobs:
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             dialog \
-            img2simg
+            android-sdk-libsparse-utils
 
       - name: Configure Git for better network reliability
         run: |
@@ -160,7 +160,7 @@ jobs:
           ls -lh output/images/ 2>/dev/null | head -20 || true
           echo "::endgroup::"
 
-      - name: Install AmlImg tool
+      - name: Install AmlImg tool and verify img2simg
         if: success()
         working-directory: armbian-build
         run: |
@@ -168,6 +168,26 @@ jobs:
           ver="v0.3.1"
           curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
           chmod +x ./AmlImg
+          echo "::endgroup::"
+          
+          echo "::group::Verify img2simg command"
+          # Check if img2simg is available
+          if ! command -v img2simg &> /dev/null; then
+            echo "img2simg not found in PATH, checking common locations..."
+            # Check if it's in /usr/lib/android-sdk/platform-tools or similar
+            if [ -f /usr/lib/android-sdk/platform-tools/img2simg ]; then
+              echo "Found img2simg in /usr/lib/android-sdk/platform-tools/"
+              export PATH="/usr/lib/android-sdk/platform-tools:$PATH"
+            elif [ -f /usr/bin/img2simg ]; then
+              echo "Found img2simg in /usr/bin/"
+            else
+              echo "Error: img2simg command not found"
+              echo "Trying to find img2simg..."
+              find /usr -name "img2simg" 2>/dev/null || true
+              exit 1
+            fi
+          fi
+          img2simg --version || img2simg --help || echo "img2simg command available"
           echo "::endgroup::"
 
       - name: Download and unpack u-boot burn.img
