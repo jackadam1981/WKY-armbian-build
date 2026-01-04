@@ -98,7 +98,7 @@ jobs:
           path: output/debs/*
 
   build:
-    name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}
+    name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
     needs: [ prepare, build-debs ]
     runs-on: ubuntu-22.04
     timeout-minutes: 240
@@ -111,6 +111,15 @@ jobs:
           - bullseye
           - bookworm
           - jammy
+        TYPE:
+          - minimal
+          - cli
+          - desktop
+        include:
+          - TYPE: desktop
+            DESKTOP_ENVIRONMENT: xfce
+            DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
+            DESKTOP_APPGROUPS_SELECTED: ""
 
     steps:
       - name: Import env
@@ -141,8 +150,11 @@ jobs:
               BRANCH=${{ matrix.BRANCH }} \
               RELEASE=${{ matrix.RELEASE }} \
               KERNEL_CONFIGURE=no \
-              BUILD_MINIMAL=no \
-              BUILD_DESKTOP=no \
+              BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
+              BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
+              DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
+              DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
+              DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
               EXPERT=yes \
               SKIP_EXTERNAL_TOOLCHAINS=yes \
               CLEAN_LEVEL= \
@@ -235,7 +247,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ github.run_number }}
+          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}-${{ github.run_number }}
           path: output/images/*
           retention-days: 30
           if-no-files-found: warn
@@ -253,5 +265,7 @@ jobs:
           echo "::group::Build Summary"
           echo "Branch: ${{ matrix.BRANCH }}"
           echo "Release: ${{ matrix.RELEASE }}"
+          echo "Type: ${{ matrix.TYPE }}"
+          echo "Desktop: ${{ matrix.DESKTOP_ENVIRONMENT || 'N/A' }}"
           echo "Status: ${{ job.status }}"
           echo "::endgroup::"
