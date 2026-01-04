@@ -60,7 +60,20 @@ jobs:
             gcc-arm-linux-gnueabihf \
             g++-arm-linux-gnueabihf \
             gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu
+            g++-aarch64-linux-gnu \
+            dialog
+
+      - name: Configure Git for better network reliability
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 999999
+          git config --global http.timeout 600
+          git config --global http.sslVerify true
+          # Increase connection timeout and retry
+          git config --global core.compression 0
+          # Set longer timeout for slow connections
+          git config --global http.version HTTP/1.1
 
       - name: Configure build parameters
         id: config
@@ -98,21 +111,42 @@ jobs:
           BUILD_DESKTOP: "no"
           KERNEL_CONFIGURE: "no"
           COMPRESS_OUTPUTIMAGE: "sha,img"
+          # Increase Git timeout for kernel.org access
+          GIT_HTTP_LOW_SPEED_LIMIT: 0
+          GIT_HTTP_LOW_SPEED_TIME: 999999
+          GIT_HTTP_TIMEOUT: 600
         run: |
-          echo "::group::Build Log"
-          # Provide "no" input to any interactive prompts
-          yes "no" | ./compile.sh build \
-            BOARD=${BOARD} \
-            BRANCH=${BRANCH} \
-            RELEASE=${RELEASE} \
-            BUILD_MINIMAL=${BUILD_MINIMAL} \
-            BUILD_DESKTOP=${BUILD_DESKTOP} \
-            KERNEL_CONFIGURE=${KERNEL_CONFIGURE} \
-            COMPRESS_OUTPUTIMAGE=${COMPRESS_OUTPUTIMAGE} || {
-              echo "::error::Build failed!"
-              exit 1
-            }
-          echo "::endgroup::"
+          # Configure Git in the build directory for better network reliability
+          git config http.postBuffer 524288000
+          git config http.timeout 600
+          git config http.lowSpeedLimit 0
+          git config http.lowSpeedTime 999999
+          
+          # Retry mechanism for network issues (especially git.kernel.org)
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if yes "no" | timeout 10800 ./compile.sh \
+              BOARD=${BOARD} \
+              BRANCH=${BRANCH} \
+              RELEASE=${RELEASE} \
+              BUILD_MINIMAL=${BUILD_MINIMAL} \
+              BUILD_DESKTOP=${BUILD_DESKTOP} \
+              KERNEL_CONFIGURE=${KERNEL_CONFIGURE} \
+              COMPRESS_OUTPUTIMAGE=${COMPRESS_OUTPUTIMAGE}; then
+              echo "Build completed successfully"
+              exit 0
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Build failed, retrying... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 30
+              else
+                echo "Build failed after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
 
       - name: List output files
         working-directory: armbian-build
