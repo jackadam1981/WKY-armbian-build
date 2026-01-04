@@ -37,7 +37,30 @@ jobs:
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
 
           SCRIPT_SHA=$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
-          UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | jq -r .tag_name)
+          
+          # Get u-boot tag - use releases/latest API endpoint
+          if [ "${UBOOT_RELEASE}" = "latest" ]; then
+            UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases/latest | jq -r .tag_name)
+            # If tag_name is null or empty, try getting the first release tag
+            if [ -z "$UBOOT_TAG" ] || [ "$UBOOT_TAG" = "null" ]; then
+              echo "Warning: Could not get latest release tag, trying first release..."
+              UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases | jq -r '.[0].tag_name' | head -1)
+            fi
+          else
+            # If UBOOT_RELEASE is a specific tag, use it directly
+            UBOOT_TAG="${UBOOT_RELEASE}"
+          fi
+          
+          # Validate tag
+          if [ -z "$UBOOT_TAG" ] || [ "$UBOOT_TAG" = "null" ]; then
+            echo "Error: Failed to get u-boot tag"
+            echo "UBOOT_REPO: ${UBOOT_REPO}"
+            echo "UBOOT_RELEASE: ${UBOOT_RELEASE}"
+            exit 1
+          fi
+          
+          echo "U-Boot tag resolved: ${UBOOT_TAG}"
+          
           ARMBIAN_SHA=$(curl -s https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
 
           cat <<EOF | sed -E 's/^  //' >>$GITHUB_ENV
@@ -268,12 +291,35 @@ jobs:
       - name: Download and unpack u-boot
         run: |
           echo "::group::Download u-boot"
+          echo "U-Boot repo: ${UBOOT_REPO}"
+          echo "U-Boot tag: ${UBOOT_TAG}"
+          echo "U-Boot file: ${UBOOT_BURNIMG}"
+          
+          # Verify tag is set
+          if [ -z "${UBOOT_TAG}" ] || [ "${UBOOT_TAG}" = "null" ]; then
+            echo "Error: UBOOT_TAG is not set or invalid"
+            echo "Attempting to get latest tag..."
+            UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases/latest | jq -r .tag_name)
+            if [ -z "$UBOOT_TAG" ] || [ "$UBOOT_TAG" = "null" ]; then
+              UBOOT_TAG=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases | jq -r '.[0].tag_name' | head -1)
+            fi
+            echo "Retrieved tag: ${UBOOT_TAG}"
+          fi
+          
+          if [ -z "${UBOOT_TAG}" ] || [ "${UBOOT_TAG}" = "null" ]; then
+            echo "Error: Cannot determine u-boot tag"
+            exit 1
+          fi
+          
+          DOWNLOAD_URL="https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}"
+          echo "Download URL: ${DOWNLOAD_URL}"
+          
           MAX_RETRIES=3
           RETRY_COUNT=0
           
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             echo "Download attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
-            if curl -L -f -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}; then
+            if curl -L -f -o ./uboot.img "${DOWNLOAD_URL}"; then
               # Check if file was downloaded and has reasonable size (> 1MB)
               if [ -f ./uboot.img ] && [ $(stat -f%z ./uboot.img 2>/dev/null || stat -c%s ./uboot.img 2>/dev/null || echo 0) -gt 1048576 ]; then
                 echo "Download successful"
