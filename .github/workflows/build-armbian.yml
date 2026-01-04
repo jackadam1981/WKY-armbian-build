@@ -9,37 +9,18 @@ on:
     branches:
       - main
       - master
-  workflow_dispatch:
-    inputs:
-      board:
-        description: '板型名称 - 选择要编译的目标板型'
-        required: false
-        type: choice
-        default: 'onecloud'
-        options:
-          - onecloud
-      branch:
-        description: 'ARMBIAN 分支 - current: 稳定分支(推荐) | edge: 开发分支(最新功能)'
-        required: false
-        type: choice
-        default: 'current'
-        options:
-          - current
-          - edge
-      release:
-        description: '基础发行版 - bullseye: Debian 11(稳定) | bookworm: Debian 12 | jammy: Ubuntu 22.04 LTS'
-        required: false
-        type: choice
-        default: 'bookworm'
-        options:
-          - bullseye
-          - bookworm
-          - jammy
+  workflow_dispatch:  # 手动触发时，会并行编译所有 6 种组合（2个分支 × 3个发行版）
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 240  # 增加到 4 小时，ARMBIAN 编译通常需要 2-4 小时
+    strategy:
+      fail-fast: false  # 一个失败不影响其他组合
+      matrix:
+        branch: [current, edge]
+        release: [bullseye, bookworm, jammy]
+      # 总共 6 种组合：2个分支 × 3个发行版
     
     steps:
       - name: Checkout repository
@@ -84,19 +65,20 @@ jobs:
       - name: Configure build parameters
         id: config
         run: |
-          BOARD="${{ github.event.inputs.board || 'onecloud' }}"
-          BRANCH="${{ github.event.inputs.branch || 'current' }}"
-          RELEASE="${{ github.event.inputs.release || 'bullseye' }}"
+          BOARD="onecloud"
+          BRANCH="${{ matrix.branch }}"
+          RELEASE="${{ matrix.release }}"
           
           echo "board=${BOARD}" >> $GITHUB_OUTPUT
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
           echo "release=${RELEASE}" >> $GITHUB_OUTPUT
           
           echo "::group::Build Configuration"
-          echo "Building Armbian for WS-1608"
+          echo "Building Armbian for WS-1608 (onecloud)"
           echo "Board: ${BOARD}"
           echo "Branch: ${BRANCH}"
           echo "Release: ${RELEASE}"
+          echo "Matrix: branch=${BRANCH}, release=${RELEASE}"
           echo "::endgroup::"
 
       - name: Clone Armbian build repository
@@ -119,7 +101,7 @@ jobs:
         run: |
           echo "::group::Build Log"
           # Provide "no" input to any interactive prompts
-          yes "no" | ./compile.sh \
+          yes "no" | ./compile.sh build \
             BOARD=${BOARD} \
             BRANCH=${BRANCH} \
             RELEASE=${RELEASE} \
@@ -165,7 +147,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: armbian-ws1608-${{ steps.config.outputs.board }}-${{ steps.config.outputs.release }}-${{ github.run_number }}
+          name: armbian-ws1608-${{ steps.config.outputs.board }}-${{ matrix.branch }}-${{ matrix.release }}-${{ github.run_number }}
           path: |
             armbian-build/output/images/*.img
             armbian-build/output/images/*.img.sha
@@ -178,7 +160,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build-logs-${{ github.run_number }}
+          name: build-logs-${{ matrix.branch }}-${{ matrix.release }}-${{ github.run_number }}
           path: |
             armbian-build/output/logs/*.log
           retention-days: 7
@@ -189,11 +171,12 @@ jobs:
         run: |
           echo "::group::Build Summary"
           echo "Board: ${{ steps.config.outputs.board }}"
-          echo "Branch: ${{ steps.config.outputs.branch }}"
-          echo "Release: ${{ steps.config.outputs.release }}"
+          echo "Branch: ${{ matrix.branch }}"
+          echo "Release: ${{ matrix.release }}"
           echo "Images: ${{ steps.summary.outputs.images }}"
           echo "Checksums: ${{ steps.summary.outputs.checksums }}"
           echo "Total Size: ${{ steps.summary.outputs.size }}"
           echo "Status: ${{ job.status }}"
+          echo "Matrix: branch=${{ matrix.branch }}, release=${{ matrix.release }}"
           echo "::endgroup::"
 
