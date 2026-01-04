@@ -37,51 +37,8 @@ jobs:
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
 
           SCRIPT_SHA=$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
-          
-          # Get u-boot tag - use releases/latest API endpoint
-          if [ "${UBOOT_RELEASE}" = "latest" ]; then
-            echo "Fetching latest release from ${UBOOT_REPO}..."
-            LATEST_RESPONSE=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases/latest)
-            UBOOT_TAG=$(echo "$LATEST_RESPONSE" | jq -r .tag_name)
-            
-            # Check if API returned an error
-            if echo "$LATEST_RESPONSE" | jq -e '.message' > /dev/null 2>&1; then
-              ERROR_MSG=$(echo "$LATEST_RESPONSE" | jq -r .message)
-              echo "API Error: $ERROR_MSG"
-            fi
-            
-            # If tag_name is null or empty, try getting the first release tag
-            if [ -z "$UBOOT_TAG" ] || [ "$UBOOT_TAG" = "null" ]; then
-              echo "Warning: Could not get latest release tag, trying first release..."
-              RELEASES_RESPONSE=$(curl -s https://api.github.com/repos/${UBOOT_REPO}/releases)
-              # Check if response is an array and has elements
-              if echo "$RELEASES_RESPONSE" | jq -e 'type == "array" and length > 0' > /dev/null 2>&1; then
-                UBOOT_TAG=$(echo "$RELEASES_RESPONSE" | jq -r '.[0].tag_name' | head -1)
-              elif echo "$RELEASES_RESPONSE" | jq -e 'type == "array"' > /dev/null 2>&1; then
-                echo "Warning: Releases array is empty"
-              else
-                echo "Error: Releases API did not return an array"
-                echo "Response type: $(echo "$RELEASES_RESPONSE" | jq -r 'type')"
-                echo "Response preview: $(echo "$RELEASES_RESPONSE" | head -c 200)"
-              fi
-            fi
-          else
-            # If UBOOT_RELEASE is a specific tag, use it directly
-            UBOOT_TAG="${UBOOT_RELEASE}"
-          fi
-          
-          # Validate tag
-          if [ -z "$UBOOT_TAG" ] || [ "$UBOOT_TAG" = "null" ]; then
-            echo "Error: Failed to get u-boot tag"
-            echo "UBOOT_REPO: ${UBOOT_REPO}"
-            echo "UBOOT_RELEASE: ${UBOOT_RELEASE}"
-            echo "Attempting to list available releases..."
-            curl -s https://api.github.com/repos/${UBOOT_REPO}/releases | jq -r '.[] | .tag_name' | head -5
-            exit 1
-          fi
-          
-          echo "U-Boot tag resolved: ${UBOOT_TAG}"
-          
+          # Get u-boot tag - use same method as cl.yml (follow redirects with -L)
+          UBOOT_TAG=$(curl -sL https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | jq -r .tag_name)
           ARMBIAN_SHA=$(curl -s https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
 
           cat <<EOF | sed -E 's/^  //' >>$GITHUB_ENV
