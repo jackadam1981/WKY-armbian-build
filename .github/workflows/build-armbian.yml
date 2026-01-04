@@ -68,21 +68,16 @@ jobs:
           BOARD="onecloud"
           BRANCH="${{ matrix.branch }}"
           RELEASE="${{ matrix.release }}"
-          # 默认 HDMI 分辨率：1920x1080@60Hz
-          # 可以根据需要修改为：1280x720p60, 1024x768p60 等
-          HDMI_RESOLUTION="1920x1080p60"
           
           echo "board=${BOARD}" >> $GITHUB_OUTPUT
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
           echo "release=${RELEASE}" >> $GITHUB_OUTPUT
-          echo "hdmi_resolution=${HDMI_RESOLUTION}" >> $GITHUB_OUTPUT
           
           echo "::group::Build Configuration"
           echo "Building Armbian for WS-1608 (onecloud)"
           echo "Board: ${BOARD}"
           echo "Branch: ${BRANCH}"
           echo "Release: ${RELEASE}"
-          echo "HDMI Resolution: ${HDMI_RESOLUTION}"
           echo "Matrix: branch=${BRANCH}, release=${RELEASE}"
           echo "::endgroup::"
 
@@ -91,31 +86,6 @@ jobs:
           git clone --depth=1 https://github.com/armbian/build.git armbian-build
           cd armbian-build
           git fetch --depth=100 || true
-
-      - name: Configure default HDMI resolution
-        working-directory: armbian-build
-        env:
-          HDMI_RESOLUTION: ${{ steps.config.outputs.hdmi_resolution }}
-        run: |
-          # 创建 userpatches 目录（如果不存在）
-          mkdir -p userpatches/overlay/boot
-          
-          # 创建默认的 armbianEnv.txt 配置文件
-          # 设置默认 HDMI 分辨率
-          # 这个文件会在编译时被复制到镜像的 /boot 目录
-          cat > userpatches/overlay/boot/armbianEnv.txt << EOF
-          verbosity=1
-          bootlogo=false
-          console=both
-          disp.screen0_output_mode=${HDMI_RESOLUTION}
-          rootdev=UUID=
-          rootfstype=ext4
-          EOF
-          
-          echo "Default HDMI resolution configured: ${HDMI_RESOLUTION}"
-          echo "Configuration will be applied to /boot/armbianEnv.txt in the image"
-          echo "Content of armbianEnv.txt:"
-          cat userpatches/overlay/boot/armbianEnv.txt
 
       - name: Build Armbian image
         working-directory: armbian-build
