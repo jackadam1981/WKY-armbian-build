@@ -397,12 +397,18 @@ jobs:
           done
           echo "::endgroup::"
 
+      - name: List images before upload
+        run: |
+          echo "::group::Files in output/images"
+          ls -la output/images/
+          echo "::endgroup::"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}-${{ github.run_number }}
-          path: output/images/*
+          path: output/images/
           retention-days: 30
           if-no-files-found: warn
 
