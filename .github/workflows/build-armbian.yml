@@ -386,14 +386,13 @@ jobs:
           ls -lh "$burnimg"
           echo "::endgroup::"
 
-      - name: Hash and compress images
+      - name: Hash images
         run: |
-          echo "::group::Hash and compress"
+          echo "::group::Hash images"
           cd output/images
           for f in *.img; do
             if [ -f "$f" ]; then
               sha256sum "$f" | tee -a sha256sum
-              xz --threads=0 --compress "$f"
             fi
           done
           echo "::endgroup::"
