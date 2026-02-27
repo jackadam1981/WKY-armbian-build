@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       env: ${{ steps.get.outputs.env }}
+      tag: ${{ steps.get.outputs.tag }}
     steps:
       - id: get
         name: Get repositories information
@@ -48,6 +49,7 @@ jobs:
             UBOOT_TAG=$UBOOT_TAG
             ARMBIAN_SHA=$ARMBIAN_SHA
           EOF
+          echo "tag=$TAG" >>$GITHUB_OUTPUT
           echo "env=$(cat $GITHUB_ENV | base64 -w 0)" >>$GITHUB_OUTPUT
 
       - name: Show repositories information
@@ -429,3 +431,40 @@ jobs:
           echo "Desktop: ${{ matrix.DESKTOP_ENVIRONMENT || 'N/A' }}"
           echo "Status: ${{ job.status }}"
           echo "::endgroup::"
+
+  release:
+    name: Create Release
+    needs: [prepare, build]
+    if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-${{ github.run_number }}'
+          path: release-files/
+          merge-multiple: true
+
+      - name: Collect image files for release
+        run: |
+          mkdir -p release-assets
+          find release-files -name "*.img" -exec cp {} release-assets/ \;
+          find release-files -name "sha256sum" -exec cat {} >> release-assets/sha256sums.txt \;
+          sort release-assets/sha256sums.txt | uniq > release-assets/sha256sums.sorted
+          mv release-assets/sha256sums.sorted release-assets/sha256sums.txt
+          echo "Release assets:"
+          ls -lh release-assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Armbian WS-1608 ${{ needs.prepare.outputs.tag }}
+          draft: true
+          generate_release_notes: true
+          files: release-assets/*
