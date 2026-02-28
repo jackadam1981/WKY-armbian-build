@@ -450,15 +450,17 @@ jobs:
           path: release-files/
           merge-multiple: true
 
-      - name: Collect image files for release
+      - name: Collect and compress image files for release
         run: |
           mkdir -p release-assets
-          find release-files -name "*.img" -exec cp {} release-assets/ \;
-          find release-files -name "sha256sum" -exec cat {} >> release-assets/sha256sums.txt \;
-          sort release-assets/sha256sums.txt | uniq > release-assets/sha256sums.sorted
-          mv release-assets/sha256sums.sorted release-assets/sha256sums.txt
-          echo "Release assets:"
-          ls -lh release-assets/
+          find release-files -name "*.img" | while read f; do
+            cp "$f" release-assets/
+            echo "Compressing $(basename "$f")..."
+            xz -z -9 -T0 "release-assets/$(basename "$f")"
+          done
+          cd release-assets && sha256sum *.xz > sha256sums.txt
+          echo "Compressed release assets:"
+          ls -lh
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
