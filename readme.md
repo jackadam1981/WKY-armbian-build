@@ -61,8 +61,29 @@
 - 构建产物会保留 30 天，日志保留 7 天
 - 如果编译失败，请查看构建日志排查问题
 
+## S805 U-Boot 最小底包
+
+[S805-uboot-hinas.img](Tools/S805-uboot-hinas.img) 是开启 **U 盘优先引导** 的 U-Boot，也可称为 **最小底包**，用于从 U 盘启动并安装各种系统（如 ARMBIAN、OpenWrt 等）。刷入此底包后，设备会优先从 U 盘启动，便于安装或更换系统。
+
+## USB Burning Tool（含超时补丁）
+
+使用 USB Burning Tool 刷入 `.burn.img` 时，常会遇到烧录卡在 97% 的超时错误。原因如下：
+
+- 固件烧录后设备需计算 SHA1 校验值
+- 大分区（如 root/system）校验时间可能超过 150 秒默认限制
+- 容易在校验阶段超时并报错
+
+**本仓库提供含超时补丁的版本**：
+
+- [Amlogic USB Burning Tool v2.2.0 （含超时补丁）](Tools/Amlogic%20USB%20Burning%20Tool%20v2.2.0%20%EF%BC%88%E5%90%AB%E8%B6%85%E6%97%B6%E8%A1%A5%E4%B8%81%EF%BC%89.zip)
+
+**安装步骤**：
+
+1. 安装 USB Burning Tool 主程序（.exe）
+2. 将 `UsbRomDrv.dll` 复制到安装目录（如 `D:\Program Files (x86)\Amlogic\USB_Burning_Tool`）并覆盖原文件
+
 ## 相关链接
 
-- [刷入指南](刷入指南.md) - 详细的镜像刷入教程
+- [刷入指南](flashing-guide.md) - 详细的镜像刷入教程
 - [ARMBIAN 官方仓库](https://github.com/armbian/build)
 - [ARMBIAN 文档](https://docs.armbian.com/)
