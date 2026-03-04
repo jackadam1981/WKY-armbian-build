@@ -176,7 +176,7 @@ jobs:
           path: output/debs/*
 
   build:
-    name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
+    name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}-${{ matrix.HDMI }}
     needs: [ prepare, build-debs ]
     runs-on: ubuntu-22.04
     timeout-minutes: 240
@@ -193,6 +193,9 @@ jobs:
           - minimal
           - cli
           - desktop
+        HDMI:
+          - use_hdmi
+          - no_hdmi
         include:
           - TYPE: desktop
             DESKTOP_ENVIRONMENT: xfce
@@ -259,6 +262,7 @@ jobs:
           GIT_HTTP_LOW_SPEED_LIMIT: 0
           GIT_HTTP_LOW_SPEED_TIME: 999999
           GIT_HTTP_TIMEOUT: 600
+          ONECLOUD_HDMI: ${{ matrix.HDMI }}
         run: |
           export GITHUB_ACTIONS=false
           
@@ -283,6 +287,7 @@ jobs:
                 SKIP_EXTERNAL_TOOLCHAINS=yes \
                 CLEAN_LEVEL=debs,cache,oldlogs \
                 USE_CCACHE=no \
+                EXTRA_IMAGE_SUFFIX=-${{ matrix.HDMI }} \
                 COMPRESS_OUTPUTIMAGE=img; then
               echo "Build completed successfully"
               sudo chown $(id -u):$(id -g) -R output/

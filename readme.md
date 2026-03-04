@@ -27,10 +27,15 @@
    - **Branch**: ARMBIAN 分支
      - `current`: 稳定分支，经过充分测试，推荐用于生产环境（默认）
      - `edge`: 开发分支，包含最新功能和更新，但可能不够稳定
-   - **Release**: 基础发行版
-     - `bullseye`: Debian 11，稳定可靠（默认）
-     - `bookworm`: Debian 12，较新的稳定版本
-     - `jammy`: Ubuntu 22.04 LTS，长期支持版本
+  - **Release**: 基础发行版（小孩子才做选择，我们全都要）
+     - `bullseye`: Debian 11（oldstable）
+     - `bookworm`: Debian 12（stable）
+     - `trixie`: Debian 13（testing）
+     - `sid`: Debian unstable
+     - `jammy`: Ubuntu 22.04 LTS
+     - `noble`: Ubuntu 24.04 LTS
+     - `oracular`: Ubuntu 24.10
+     - `plucky`: Ubuntu 25.04（开发中）
 
 ### 下载构建产物
 
@@ -49,10 +54,15 @@
 - **BRANCH**: ARMBIAN 分支
   - `current`: 稳定分支（推荐）
   - `edge`: 开发分支（最新功能）
-- **RELEASE**: 基础发行版
-  - `bullseye`: Debian 11
-  - `bookworm`: Debian 12
+- **RELEASE**: 基础发行版与上游对应关系（小孩子才做选择，我们全都要）
+  - `bullseye`: Debian 11（oldstable）
+  - `bookworm`: Debian 12（stable）
+  - `trixie`: Debian 13（testing）
+  - `sid`: Debian unstable
   - `jammy`: Ubuntu 22.04 LTS
+  - `noble`: Ubuntu 24.04 LTS
+  - `oracular`: Ubuntu 24.10
+  - `plucky`: Ubuntu 25.04（开发中）
 
 ## 注意事项
 
