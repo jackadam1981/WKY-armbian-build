@@ -187,14 +187,10 @@ jobs:
         BRANCH:
           - current
         RELEASE:
-          - bullseye
-          - bookworm
-          - trixie
-          - sid
-          - jammy
-          - noble
-          - oracular
-          - plucky
+          - bullseye    # Debian 11 (oldstable)
+          - bookworm    # Debian 12 (stable)
+          - jammy       # Ubuntu 22.04 LTS
+          - noble       # Ubuntu 24.04 LTS
         TYPE:
           - minimal
           - cli
