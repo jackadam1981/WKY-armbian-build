@@ -82,6 +82,42 @@ jobs:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
+      - name: Checkout script repository (for userpatches)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SCRIPT_REPO }}
+          ref: ${{ env.SCRIPT_REF }}
+          path: script
+
+      - name: Install userpatches into Armbian build tree
+        run: |
+          if [ -d script/userpatches ]; then
+            rm -rf userpatches || true
+            cp -a script/userpatches ./userpatches
+            ls -la userpatches || true
+          else
+            echo "No userpatches found in script repo"
+          fi
+
+      - name: "Debug: print kernel source and check DTS/HDMI (if available)"
+        if: ${{ always() }}
+        run: |
+          echo "Listing build/linux* dirs..."
+          ls -d build/linux* 2>/dev/null || true
+          for d in build/linux*; do
+            echo "=== $d ==="
+            if [ -d "$d/.git" ]; then
+              git -C "$d" remote -v || true
+              git -C "$d" rev-parse --short HEAD || true
+              git -C "$d" log -1 --pretty=format:'%H %s' || true
+            else
+              echo "$d (not a git repo) contents:"
+              ls -la "$d" | sed -n '1,60p' || true
+            fi
+            echo "Searching for meson*onecloud*.dts and hdmi nodes..."
+            find "$d" -name '*onecloud*.dts' -print -exec grep -n -E 'hdmi|hdmitx|hdmi_tx|gx-sound-card|hdmi-connector' {} \; || true
+          done
+
       - name: Configure Git for network reliability
         run: |
           git config --global http.postBuffer 524288000
@@ -131,6 +167,25 @@ jobs:
                 exit 1
               fi
             fi
+          done
+
+      - name: "Debug: inspect kernel source after completion"
+        if: ${{ always() }}
+        run: |
+          echo "After kernel build, listing build/linux* dirs..."
+          ls -d build/linux* 2>/dev/null || true
+          for d in build/linux*; do
+            echo "=== $d ==="
+            if [ -d "$d/.git" ]; then
+              git -C "$d" remote -v || true
+              git -C "$d" rev-parse --short HEAD || true
+              git -C "$d" log -1 --pretty=format:'%H %s' || true
+            else
+              echo "$d (not a git repo) contents:"
+              ls -la "$d" | sed -n '1,120p' || true
+            fi
+            echo "Searching for onecloud DTS and HDMI nodes after build..."
+            find "$d" -name '*onecloud*.dts' -print -exec grep -n -E 'hdmi|hdmi_tx|gx-sound-card|hdmi-connector' {} \; || true
           done
 
       - name: Upload artifacts

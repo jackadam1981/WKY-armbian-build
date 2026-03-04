@@ -1,0 +1,15 @@
+--- a/arch/arm/boot/dts/meson8-onecloud.dts
++++ b/arch/arm/boot/dts/meson8-onecloud.dts
+@@ -1,5 +1,13 @@
+ #include "meson8.dtsi"
+ 
+ / {
++	aliases {
++		mmc0 = &sdhc_a;  /* EMMC */
++		mmc1 = &sdhc_b;  /* SD Card */
++	};
++
++	/* MMC/eMMC device ordering fix */
++	/* Ensures eMMC appears as mmcblk0 and SD card as mmcblk1 */
++
+ 	model = "Onecloud";
