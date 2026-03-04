@@ -99,25 +99,6 @@ jobs:
             echo "No userpatches found in script repo"
           fi
 
-      - name: "Debug: print kernel source and check DTS/HDMI (if available)"
-        if: ${{ always() }}
-        run: |
-          echo "Listing build/linux* dirs..."
-          ls -d build/linux* 2>/dev/null || true
-          for d in build/linux*; do
-            echo "=== $d ==="
-            if [ -d "$d/.git" ]; then
-              git -C "$d" remote -v || true
-              git -C "$d" rev-parse --short HEAD || true
-              git -C "$d" log -1 --pretty=format:'%H %s' || true
-            else
-              echo "$d (not a git repo) contents:"
-              ls -la "$d" | sed -n '1,60p' || true
-            fi
-            echo "Searching for meson*onecloud*.dts and hdmi nodes..."
-            find "$d" -name '*onecloud*.dts' -print -exec grep -n -E 'hdmi|hdmitx|hdmi_tx|gx-sound-card|hdmi-connector' {} \; || true
-          done
-
       - name: Configure Git for network reliability
         run: |
           git config --global http.postBuffer 524288000
@@ -233,6 +214,23 @@ jobs:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
+      - name: Checkout script repository (for userpatches)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SCRIPT_REPO }}
+          ref: ${{ env.SCRIPT_REF }}
+          path: script
+
+      - name: Install userpatches into Armbian build tree
+        run: |
+          if [ -d script/userpatches ]; then
+            rm -rf userpatches || true
+            cp -a script/userpatches ./userpatches
+            ls -la userpatches || true
+          else
+            echo "No userpatches found in script repo"
+          fi
+
       - name: Configure Git for network reliability
         run: |
           git config --global http.postBuffer 524288000
@@ -300,6 +298,26 @@ jobs:
               fi
             fi
           done
+
+      - name: "Debug: inspect kernel source (build job, after build image)"
+        if: ${{ always() }}
+        run: |
+          echo "::group::Kernel Source Info"
+          echo "Listing all dirs under build/..."
+          ls -la build/ 2>/dev/null | head -30 || true
+          echo ""
+          echo "Searching for all linux* dirs..."
+          find build -maxdepth 1 -type d -name 'linux*' | head -20 || true
+          echo ""
+          for d in $(find build -maxdepth 1 -type d -name 'linux*' 2>/dev/null | head -5); do
+            echo "=== $d ==="
+            ls -la "$d" 2>/dev/null | sed -n '1,30p' || true
+            echo "Searching for *onecloud*.dts files..."
+            find "$d" -name '*onecloud*.dts' -type f 2>/dev/null | head -5 || true
+            echo "Checking DTS content for HDMI..."
+            find "$d" -name '*onecloud*.dts' -type f -exec grep -l 'hdmi\|hdmi_tx' {} \; 2>/dev/null || true
+          done
+          echo "::endgroup::"
 
       - name: Install Dependents
         run: |
