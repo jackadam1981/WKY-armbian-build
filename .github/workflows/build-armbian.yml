@@ -281,7 +281,7 @@ jobs:
                 DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
                 EXPERT=yes \
                 SKIP_EXTERNAL_TOOLCHAINS=yes \
-                CLEAN_LEVEL= \
+                CLEAN_LEVEL=debs,cache,oldlogs \
                 USE_CCACHE=no \
                 COMPRESS_OUTPUTIMAGE=img; then
               echo "Build completed successfully"
