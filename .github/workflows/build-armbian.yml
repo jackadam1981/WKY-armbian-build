@@ -19,6 +19,7 @@ env:
   UBOOT_BURNIMG: eMMC.burn.img
   ARMBIAN_REPO: armbian/build
   ARMBIAN_REF: main
+  HDMI_FIX_KERNEL_URL: https://github.com/hzyitc/armbian-onecloud/releases/download/ci-20250604-151846-UTC/linux-image-current-meson_25.08.0-trunk_armhf__6.12.32-Sba92-Dca91-P4bed-C8d22Hf8af-HK01ba-Va132-B14f3-R448a.deb
 
 permissions:
   contents: write
@@ -261,6 +262,18 @@ jobs:
           name: debs-${{ matrix.BRANCH }}
           path: output/debs/
 
+      - name: Override kernel deb for HDMI builds (6.12.32)
+        if: ${{ matrix.HDMI == 'use_hdmi' }}
+        run: |
+          echo "::group::Override kernel deb for HDMI builds (6.12.32)"
+          cd output/debs
+          echo "Removing existing linux-image-current-meson debs (if any)..."
+          rm -f linux-image-current-meson_*.deb || true
+          echo "Downloading $HDMI_FIX_KERNEL_URL"
+          curl -L -o linux-image-current-meson_6.12.32-hdmi-fixed_armhf.deb "$HDMI_FIX_KERNEL_URL"
+          ls -lh
+          echo "::endgroup::"
+
       - name: Build image
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -290,7 +303,7 @@ jobs:
                 DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
                 EXPERT=yes \
                 SKIP_EXTERNAL_TOOLCHAINS=yes \
-                CLEAN_LEVEL=debs,cache,oldlogs \
+                CLEAN_LEVEL=debs,cache \
                 USE_CCACHE=no \
                 EXTRA_IMAGE_SUFFIX=-${{ matrix.HDMI }} \
                 COMPRESS_OUTPUTIMAGE=img; then
