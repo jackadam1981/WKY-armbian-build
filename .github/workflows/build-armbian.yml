@@ -188,7 +188,12 @@ jobs:
         RELEASE:
           - bullseye
           - bookworm
+          - trixie
+          - sid
           - jammy
+          - noble
+          - oracular
+          - plucky
         TYPE:
           - minimal
           - cli
@@ -487,7 +492,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}-${{ github.run_number }}
+          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}-${{ matrix.HDMI }}-${{ github.run_number }}
           path: output/images/
           retention-days: 30
           if-no-files-found: warn
