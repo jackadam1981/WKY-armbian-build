@@ -187,10 +187,7 @@ jobs:
         BRANCH:
           - current
         RELEASE:
-          - bullseye    # Debian 11 (oldstable)
-          - bookworm    # Debian 12 (stable)
-          - jammy       # Ubuntu 22.04 LTS
-          - noble       # Ubuntu 24.04 LTS
+          - trixie      # Debian 13 (Armbian supported)
         TYPE:
           - minimal
           - cli
@@ -201,12 +198,7 @@ jobs:
         include:
           - TYPE: desktop
             DESKTOP_ENVIRONMENT: xfce
-            DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
-            DESKTOP_APPGROUPS_SELECTED: ""
-        exclude:
-          # Exclude desktop builds for bullseye (Debian 11) as it doesn't support XFCE
-          - RELEASE: bullseye
-            TYPE: desktop
+            DESKTOP_TIER: minimal
 
     steps:
       - name: Import env
@@ -273,6 +265,7 @@ jobs:
       - name: Build image
         env:
           DEBIAN_FRONTEND: noninteractive
+          HDMI_VARIANT: ${{ matrix.HDMI }}
           GIT_HTTP_LOW_SPEED_LIMIT: 0
           GIT_HTTP_LOW_SPEED_TIME: 999999
           GIT_HTTP_TIMEOUT: 600
@@ -295,9 +288,9 @@ jobs:
                 BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
                 BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
                 DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
-                DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
-                DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
+                DESKTOP_TIER=${{ matrix.DESKTOP_TIER }} \
                 EXPERT=yes \
+                ENABLE_EXTENSIONS=hdmi-variant \
                 SKIP_EXTERNAL_TOOLCHAINS=yes \
                 CLEAN_LEVEL=debs,cache \
                 USE_CCACHE=no \
