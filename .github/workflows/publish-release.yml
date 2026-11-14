@@ -2,8 +2,9 @@ name: Publish release
 
 # Manually publish an existing *draft* release created by build-armbian.yml.
 # The build workflow intentionally keeps draft: true, so publishing is a
-# separate, explicit decision. This workflow is read-only until every guard
-# below passes; nothing is published on a failed check.
+# separate, explicit decision. All guards live in
+# .github/scripts/publish-release.sh (shared with the scheduled build run) and
+# nothing is published when a check fails.
 
 on:
   workflow_dispatch:
@@ -27,105 +28,13 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - name: Check and publish release
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify and publish release
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
           PRERELEASE: ${{ inputs.prerelease }}
-        run: |
-          set -euo pipefail
-
-          CHECK_DIR="$(mktemp -d)"
-
-          show_release() {
-            echo "  tag:         ${TAG}"
-            echo "  release id:  ${RELEASE_ID:-<unknown>}"
-            echo "  draft:       ${IS_DRAFT:-<unknown>}"
-            echo "  assets:      ${ASSET_COUNT:-<unknown>}"
-            echo "  image files: ${IMAGE_COUNT:-<unknown>} (*.img.xz, includes *.burn.img.xz)"
-            echo "  asset list:"
-            echo "${MATCHES:-[]}" | jq -r '.[0].assets[]? | "    \(.name)  [\(.size) bytes, \(.state)]"'
-          }
-
-          fail() {
-            echo "ERROR: $*" >&2
-            echo "---- release state at failure ----" >&2
-            show_release >&2 || true
-            exit 1
-          }
-
-          if [ -z "${TAG}" ]; then
-            fail "input 'tag' is empty"
-          fi
-          echo "Publishing tag: ${TAG} in ${REPO}"
-
-          # Draft releases are not returned by /releases/tags/{tag}, so look the
-          # tag up in the full release list instead.
-          ALL_RELEASES="$(gh api --paginate "repos/${REPO}/releases?per_page=100" | jq -s 'add // []')"
-          MATCHES="$(echo "${ALL_RELEASES}" | jq --arg t "${TAG}" '[.[] | select(.tag_name == $t)]')"
-
-          MATCH_COUNT="$(echo "${MATCHES}" | jq 'length')"
-          if [ "${MATCH_COUNT}" -ne 1 ]; then
-            fail "expected exactly 1 release with tag '${TAG}', found ${MATCH_COUNT}"
-          fi
-
-          RELEASE_ID="$(echo "${MATCHES}" | jq -r '.[0].id')"
-          IS_DRAFT="$(echo "${MATCHES}" | jq -r '.[0].draft')"
-          ASSET_COUNT="$(echo "${MATCHES}" | jq -r '.[0].assets | length')"
-          IMAGE_COUNT="$(echo "${MATCHES}" | jq -r '[.[0].assets[] | select(.name | endswith(".img.xz"))] | length')"
-          ASSET_NAMES="$(echo "${MATCHES}" | jq -r '.[0].assets[].name')"
-
-          echo "---- release state before publish ----"
-          show_release
-
-          if [ "${IS_DRAFT}" != "true" ]; then
-            fail "release '${TAG}' is not a draft (draft=${IS_DRAFT}); refusing to publish"
-          fi
-          if [ "${ASSET_COUNT}" -le 0 ]; then
-            fail "release '${TAG}' has no assets"
-          fi
-
-          SUMS_ID="$(echo "${MATCHES}" | jq -r '.[0].assets[] | select(.name == "sha256sums.txt") | .id' | head -1)"
-          if [ -z "${SUMS_ID}" ] || [ "${SUMS_ID}" = "null" ]; then
-            fail "release '${TAG}' has no sha256sums.txt asset"
-          fi
-
-          gh api "repos/${REPO}/releases/assets/${SUMS_ID}" \
-            -H "Accept: application/octet-stream" > "${CHECK_DIR}/sha256sums.txt"
-
-          SUMS_LINES="$(grep -cve '^[[:space:]]*$' "${CHECK_DIR}/sha256sums.txt" || true)"
-          if [ "${SUMS_LINES}" -ne "${IMAGE_COUNT}" ]; then
-            fail "sha256sums.txt has ${SUMS_LINES} line(s) but the release has ${IMAGE_COUNT} image file(s)"
-          fi
-
-          while read -r sum_name; do
-            [ -z "${sum_name}" ] && continue
-            if ! echo "${ASSET_NAMES}" | grep -qxF "${sum_name}"; then
-              fail "sha256sums.txt lists '${sum_name}' which is not an asset of this release"
-            fi
-          done < <(awk '{print $2}' "${CHECK_DIR}/sha256sums.txt")
-
-          echo "Checks passed: draft=${IS_DRAFT}, assets=${ASSET_COUNT}, images=${IMAGE_COUNT}, sha256sums.txt=${SUMS_LINES} line(s)"
-
-          PRERELEASE_FLAG="--prerelease=false"
-          if [ "${PRERELEASE}" = "true" ]; then
-            PRERELEASE_FLAG="--prerelease=true"
-          fi
-
-          echo "Publishing release '${TAG}' (draft=false, ${PRERELEASE_FLAG})"
-          gh release edit "${TAG}" --repo "${REPO}" --draft=false "${PRERELEASE_FLAG}"
-
-          MATCHES="$(gh api --paginate "repos/${REPO}/releases?per_page=100" \
-            | jq -s --arg t "${TAG}" 'add // [] | [.[] | select(.tag_name == $t)]')"
-          IS_DRAFT="$(echo "${MATCHES}" | jq -r '.[0].draft')"
-          ASSET_COUNT="$(echo "${MATCHES}" | jq -r '.[0].assets | length')"
-          IMAGE_COUNT="$(echo "${MATCHES}" | jq -r '[.[0].assets[] | select(.name | endswith(".img.xz"))] | length')"
-
-          echo "---- release state after publish ----"
-          show_release
-
-          if [ "${IS_DRAFT}" != "false" ]; then
-            fail "release '${TAG}' is still draft after publish"
-          fi
-          echo "OK: '${TAG}' is published with ${ASSET_COUNT} asset(s), ${IMAGE_COUNT} image file(s)."
+        run: bash .github/scripts/publish-release.sh

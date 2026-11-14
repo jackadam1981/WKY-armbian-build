@@ -9,6 +9,9 @@ on:
     branches:
       - main
       - master
+  # Monthly rebuild: 1st day of the month, 04:00 UTC = 12:00 (UTC+8).
+  schedule:
+    - cron: '0 4 1 * *'
   workflow_dispatch:
 
 env:
@@ -520,7 +523,7 @@ jobs:
   release:
     name: Create Release
     needs: [prepare, build]
-    if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -555,3 +558,15 @@ jobs:
           draft: true
           generate_release_notes: true
           files: release-assets/*
+
+      # Only the scheduled run publishes automatically; manual and push runs
+      # stop at the draft, so a human still decides. The guards live in the
+      # shared script and leave the draft untouched when anything is off.
+      - name: Publish release (scheduled runs only)
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: 'false'
+        run: bash .github/scripts/publish-release.sh
